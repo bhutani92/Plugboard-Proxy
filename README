@@ -1,0 +1,100 @@
+PBPROXY
+
+This application adds an extra layer of protection to publicly accessible network services.
+
+USAGE:
+
+Server -> ./pbproxy -k mykey -l 2222 localhost 22
+Client -> ssh -o "ProxyCommand ./pbproxy -k mykey localhost 2222" localhost
+
+The server can also be invoked using make file command.
+
+Server -> make sshd_server
+Localhost Client -> make sshd_local_client
+VULN.STONYBROOK.EDU CLIENT -> make sshd_sbu_client
+
+The key for Client and Server should be same. Otherwise, the client won't work and will have to be killed by CTRL-C.
+The keys can either be provided in plain text or in a file. If no key is specified the function uses a default key stored in the program. The server keeps running even if client connection is terminated. To kill the server use CTRL-C.
+
+EXAMPLE-OUTPUT:
+
+Server : ./pbproxy -l 2222 localhost 22
+ No key specified. Choosing own key : Bad address
+ Key : 123456789
+ Client connection received : Bad address
+ Cannot read data from proxy-client : Success
+ Cannot read data from sshd server : Success
+ Client connection received : Bad address
+
+Client : ssh -o "ProxyCommand ./pbproxy localhost 2222" localhost
+ No key specified. Choosing own key : Bad address
+ bhutani92@localhost's password: 
+ Welcome to Ubuntu 17.10 (GNU/Linux 4.13.0-16-generic x86_64)
+
+* Documentation:  https://help.ubuntu.com
+* Management:     https://landscape.canonical.com
+* Support:        https://ubuntu.com/advantage
+
+* Ubuntu 17.10 releases with Gnome, Kubernetes 1.8, and minimal
+base images
+- https://ubu.one/u1710
+
+0 packages can be updated.
+0 updates are security updates.
+
+Last login: Tue Nov  7 22:08:48 2017 from 127.0.0.1
+
+bhutani92@Bhutani-Notebook-PC:~$ ls
+Android              Desktop           Music      Public
+audiofile.wav        Documents         nohup.out  Templates
+bin                  Downloads         OneDrive   texput.log
+containerAccess.txt  examples.desktop  Pictures   Videos
+bhutani92@Bhutani-Notebook-PC:~$ pwd
+/home/bhutani92
+bhutani92@Bhutani-Notebook-PC:~$ exit
+logout
+Connection to localhost closed
+
+bhutani92@Bhutani-Notebook-PC:~/Desktop/Network Security/Assignment 3$ ssh -o "ProxyCommand ./pbproxy localhost 2222" localhost
+No key specified. Choosing own key : Bad address
+bhutani92@localhost's password: 
+Welcome to Ubuntu 17.10 (GNU/Linux 4.13.0-16-generic x86_64)
+
+* Documentation:  https://help.ubuntu.com
+* Management:     https://landscape.canonical.com
+* Support:        https://ubuntu.com/advantage
+
+* Ubuntu 17.10 releases with Gnome, Kubernetes 1.8, and minimal
+base images
+- https://ubu.one/u1710
+
+0 packages can be updated.
+0 updates are security updates.
+
+Last login: Wed Nov  8 23:17:48 2017 from 127.0.0.1
+bhutani92@Bhutani-Notebook-PC:~$ 
+
+
+IMPLEMENTATION DETAILS:
+
+The various functions in used are :
+
+main() -> Starting point of the program. The arguments are read from the command line and forwarded to establish_client_connection function or establish_server_connection function based on -l flag.
+
+establish_client_connection() -> We create a socket connection and connect it to the destination and port address specified by the user. After the connection is established, we create 2 threads - one to read the data from STDIN and other which writes the data to the STDOUT after receiving the data from socket connection.
+
+establish_server_connection() -> We create a socket connection to listen to the local port provided by the user. We use INADDR_ANY for the socket address as we are open to any connections. We use bind system call to bind the connection to the local port and we start listening for incoming connections. When a connection is received, it is detected using the accept system call which forks a child to parse this accepted connection. The accept system call provides the file descriptor for the accepted connection. When the client reads the data from STDIN, it establishes a connection to local port and this function calls the parse_clent_connections function when the connection is established.
+
+parse_client_connections() -> We create a socket connection and connect to the destination address and port provided by the user. Once the connection is established, we create 2 threads - one to write the data from the client to the server and other to read the data from the server and pass to the client.
+
+server_write_to_sshd() -> This thread reads the encrypted data from the client and writes it to the destination address and port provided after decryting it.
+
+server_read_from_sshd() -> This thread reads the decrypted data from the server and encrypts it and writes to the client.
+
+client_write_to_stdout() -> This thread reads the encrypted data from the proxy-server and writes it to the STDOUT after decrypting it.
+
+client_read_from_stdin() -> This thread reads the data from the STDIN and encrypts and sends to the proxy-server.
+
+encrypt_decrypt_data() -> This function is responsible for encrypting / decrypting the connection using the key provided by the user. The OpenSSL library functions are used to achieve this functionality. AES_set_encrypt_key is responsible for setting the encryption / decryption key that will be used by AES_ctr128_encrypt function. AES_ctr128_encrypt function encrypts / decrypts every 16 bytes of input data and writes to the buffer cipher_text_buffer. Until all the input bytes are encypted / decrypted, the output buffer is populated.
+
+init_ctr() -> As the IV is generated randomly in both client and server connections, we use this function to store the IV in ctr_state. The struct ctr_state is passed to encrypt_decrypt_data() for encyption / decryption to be successful.
